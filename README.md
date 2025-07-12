@@ -28,13 +28,8 @@ With pip (Python>=3.11):
 pip install browser-use
 ```
 
-For memory functionality (requires Python<3.13 due to PyTorch compatibility):  
-
-```bash
-pip install "browser-use[memory]"
-```
-
 Install the browser:
+
 ```bash
 playwright install chromium --with-deps --no-shell
 ```
@@ -46,12 +41,12 @@ import asyncio
 from dotenv import load_dotenv
 load_dotenv()
 from browser_use import Agent
-from langchain_openai import ChatOpenAI
+from browser_use.llm import ChatOpenAI
 
 async def main():
     agent = Agent(
         task="Compare the price of gpt-4o and DeepSeek-V3",
-        llm=ChatOpenAI(model="gpt-4o"),
+        llm=ChatOpenAI(model="o4-mini", temperature=1.0),
     )
     await agent.run()
 
@@ -82,9 +77,87 @@ You can test browser-use using its [Web UI](https://github.com/browser-use/web-u
 You can also use our `browser-use` interactive CLI (similar to `claude` code):
 
 ```bash
-pip install browser-use[cli]
+pip install "browser-use[cli]"
 browser-use
 ```
+
+## MCP Integration
+
+Browser-use supports the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/), enabling integration with Claude Desktop and other MCP-compatible clients.
+
+### Use as MCP Server with Claude Desktop
+
+Add browser-use to your Claude Desktop configuration:
+
+```json
+{
+  "mcpServers": {
+    "browser-use": {
+      "command": "uvx",
+      "args": ["browser-use", "--mcp"],
+      "env": {
+        "OPENAI_API_KEY": "sk-..."
+      }
+    }
+  }
+}
+```
+
+This gives Claude Desktop access to browser automation tools for web scraping, form filling, and more.
+
+### Connect External MCP Servers to Browser-Use Agent
+
+Browser-use agents can connect to multiple external MCP servers to extend their capabilities:
+
+```python
+import asyncio
+from browser_use import Agent, Controller
+from browser_use.mcp.client import MCPClient
+from browser_use.llm import ChatOpenAI
+
+async def main():
+    # Initialize controller
+    controller = Controller()
+    
+    # Connect to multiple MCP servers
+    filesystem_client = MCPClient(
+        server_name="filesystem",
+        command="npx",
+        args=["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/documents"]
+    )
+    
+    github_client = MCPClient(
+        server_name="github", 
+        command="npx",
+        args=["-y", "@modelcontextprotocol/server-github"],
+        env={"GITHUB_TOKEN": "your-github-token"}
+    )
+    
+    # Connect and register tools from both servers
+    await filesystem_client.connect()
+    await filesystem_client.register_to_controller(controller)
+    
+    await github_client.connect()
+    await github_client.register_to_controller(controller)
+    
+    # Create agent with MCP-enabled controller
+    agent = Agent(
+        task="Find the latest report.pdf in my documents and create a GitHub issue about it",
+        llm=ChatOpenAI(model="gpt-4o"),
+        controller=controller  # Controller has tools from both MCP servers
+    )
+    
+    # Run the agent
+    await agent.run()
+    
+    # Cleanup
+    await filesystem_client.disconnect()
+    await github_client.disconnect()
+
+asyncio.run(main())
+```
+
+See the [MCP documentation](https://docs.browser-use.com/customize/mcp-server) for more details.
 
 # Demos
 
@@ -156,15 +229,20 @@ Tell your computer what to do, and it gets it done.
 
 - [ ] Human work is sequential. The real power of a browser agent comes into reality if we can parallelize similar tasks. For example, if you want to find contact information for 100 companies, this can all be done in parallel and reported back to a main agent, which processes the results and kicks off parallel subtasks again.
 
-
 ## Contributing
 
 We love contributions! Feel free to open issues for bugs or feature requests. To contribute to the docs, check out the `/docs` folder.
 
+## 🧪 How to make your agents robust?
+
+We offer to run your tasks in our CI—automatically, on every update!
+
+- **Add your task:** Add a YAML file in `tests/agent_tasks/` (see the [`README there`](tests/agent_tasks/README.md) for details).
+- **Automatic validation:** Every time we push updates, your task will be run by the agent and evaluated using your criteria.
+
 ## Local Setup
 
 To learn more about the library, check out the [local setup 📕](https://docs.browser-use.com/development/local-setup).
-
 
 `main` is the primary development branch with frequent changes. For production use, install a stable [versioned release](https://github.com/browser-use/browser-use/releases) instead.
 
